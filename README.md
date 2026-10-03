@@ -2,26 +2,22 @@
 
 An open-source AI agent for investigating and understanding unfamiliar GitHub repositories.
 
-RepoPilot is designed to assist developers in navigating, exploring, and analyzing codebases. The eventual system will use **Gemma 4** as its primary open-weight reasoning model.
+RepoPilot is designed to assist developers in navigating, exploring, and analyzing codebases. The system uses **Gemma 4** as its primary open-weight reasoning model.
 
 ---
 
 ## Current Stage
 
-**Stage 2 — Repository Acquisition & Investigation Tools**
+**Stage 4 — Repository Indexing, Vector Retrieval & RAG Agent Integration**
 
-Stage 2 completes the core codebase acquisition and investigation tool layer:
-- **Repository Acquisition (Person 2):** `Repository` abstraction, `load_local_repository`, `load_github_repository`, strict GitHub URL validation, and controlled workspace isolation (`WorkspaceManager`).
-- **Investigation Tools (Person 1):** `list_files()`, `read_file(path)`, and `search_code(query)`.
-- **Test Suites:** Offline unit tests for repository management (`tests/test_repository.py`) and investigation tools (`tests/test_tools.py`).
+Stage 4 upgrades RepoPilot with semantic retrieval capabilities:
+- **Repository Indexing & Chunking (Person 2):** `RepositoryIndexer`, deterministic line-bounded chunking (`chunk_file`), metadata tracking (`path:start_line-end_line`), and safe file filtering.
+- **Embeddings & Vector Store (Person 2):** `MockEmbeddingProvider` (deterministic offline feature hashing), `GoogleGenAIEmbeddingProvider`, and `InMemoryVectorStore` (cosine similarity search).
+- **Retrieval & RAG Context (Person 1):** `RepositoryRetriever`, `search_repository` model-facing tool, `InvestigationContext`, and evidence classification (distinguishing `retrieved_chunk` from `inspected_file`).
+- **Test Coverage:** Complete offline test suite (76 tests across `tests/test_indexing.py`, `tests/test_retrieval.py`, `tests/test_agent.py`, `tests/test_registry.py`, `tests/test_repository.py`, `tests/test_tools.py`, `tests/test_gemma.py`).
 
 ### ⚠️ Scope & Unimplemented Features
-The following features are **NOT** implemented in Stage 2 and represent future roadmap milestones:
-- Autonomous agent loop
-- Gemma tool calling loop
-- Repository indexing & vector databases
-- Retrieval-Augmented Generation (RAG)
-- Embeddings
+The following features are **NOT** implemented in Stage 4 and represent future roadmap milestones:
 - LangGraph framework integration
 - Agent Skills
 - User interface / frontend
@@ -29,41 +25,81 @@ The following features are **NOT** implemented in Stage 2 and represent future r
 
 ---
 
-## Repository Acquisition & Investigation Tools (Stage 2)
+## Stage 4 Architecture & Capabilities
 
-### Repository Acquisition Layer
-- **`load_local_repository(path)`**: Validates local directory existence, permissions, and normalizes root path.
-- **`load_github_repository(url)`**: Safely clones public HTTPS GitHub repositories into a controlled workspace outside the project source tree.
-- **`WorkspaceManager`**: Isolates cloned repositories into temporary directories to prevent workspace contamination.
+```text
+                         RepoPilot
+                            │
+              ┌─────────────┴─────────────┐
+              │                           │
+        Repository Layer             Agent Core
+             Stage 2                  Stage 3/4
+              │                           │
+              │                           ▼
+              │                        Gemma 4
+              │                           │
+              │                  ┌────────┴────────┐
+              │                  │                 │
+              │             Tool calls       Retrieval
+              │                  │                 │
+              │                  ▼                 ▼
+              │           Tool Registry       Retriever
+              │                  │                 │
+              │                  ▼                 ▼
+              │          Existing Tools       Vector Store
+              │                                    ▲
+              │                                    │
+              └──────────────► Indexer ─────► Embeddings
+                                   │
+                                   ▼
+                                Chunks
+                                   │
+                                   ▼
+                             Repository Files
+```
 
-### Repository Investigation Tools
-All tools operate relative to a controlled repository root (`repo_root`), which can be passed as a `Repository` object, `Path`, or `str`.
+### Key Components
 
-1. **`list_files(repo_root)`**:
-   - Recursively discovers all repository-relative file paths.
-   - Deterministically ordered (alphabetical).
-   - Excludes `.git`, `node_modules`, `__pycache__`, `.venv`, and common cache/build directories.
+1. **Repository Indexer (`RepositoryIndexer`)**:
+   - Safely walks repository text files using Stage 2 security & ignore rules.
+   - Splits text into line-bounded `CodeChunk` objects (e.g. `src/auth.py:1-40`).
+   - Ignores binary files, `.git`, `node_modules`, `__pycache__`, `.venv`, and oversized files.
 
-2. **`read_file(path, repo_root)`**:
-   - Safely reads repository-relative files.
-   - **Security:** Prevents path traversal (`../../secret.txt`), rejects absolute paths, and blocks symlinks pointing outside the repository root.
-   - **Binary Handling:** Detects binary content (`\x00` bytes) and avoids dumping binary data into output.
-   - **Size Limits:** Enforces content size limits (`max_bytes`) and clearly reports truncation status.
+2. **Vector Store (`InMemoryVectorStore`)**:
+   - In-memory vector store performing top-$k$ cosine similarity search over chunk embeddings.
+   - Preserves source path, line ranges, content, and similarity scores.
 
-3. **`search_code(query, repo_root)`**:
-   - Recursively searches text files for a query string (case-insensitive by default).
-   - Excludes binary files and ignored directories.
-   - Returns structured matches with relative path, line number, and trimmed line snippet.
+3. **Retriever & Search Tool (`search_repository`)**:
+   - Exposes `search_repository(query, top_k)` as an explicit tool in `ToolRegistry`.
+   - Injects repository context internally without allowing the model to specify `repo_root`.
+
+4. **Evidence Classification (`InvestigationContext`)**:
+   - Distinguishes between **Retrieved Chunks** (RAG vector search) and **Directly Inspected Files** (`read_file` tool call).
+   - Generates grounded source location citations (e.g. `src/auth.py:1-40`).
 
 ---
 
 ## Project Architecture
 
-Below is the project layout for **Stage 2**:
+Below is the project layout for **Stage 4**:
 
 ```text
 RepoPilot/
 ├── backend/
+│   ├── agent/
+│   │   ├── __init__.py
+│   │   ├── agent.py
+│   │   ├── context.py
+│   │   ├── models.py
+│   │   ├── prompts.py
+│   │   ├── registry.py
+│   │   └── retrieval.py
+│   ├── indexing/
+│   │   ├── __init__.py
+│   │   ├── chunking.py
+│   │   ├── embeddings.py
+│   │   ├── indexer.py
+│   │   └── store.py
 │   ├── repository/
 │   │   ├── __init__.py
 │   │   ├── exceptions.py
@@ -83,8 +119,12 @@ RepoPilot/
 │   └── main.py
 │
 ├── tests/
+│   ├── test_agent.py
 │   ├── test_gemma.py
+│   ├── test_indexing.py
+│   ├── test_registry.py
 │   ├── test_repository.py
+│   ├── test_retrieval.py
 │   └── test_tools.py
 │
 ├── .env.example
@@ -132,28 +172,39 @@ Follow these steps to set up RepoPilot locally on Windows using PowerShell:
 
 ## Environment Variables
 
-RepoPilot uses environment variables for configuration. These are loaded from `.env` in development:
+RepoPilot uses environment variables for configuration:
 
 | Variable | Description | Security / Notes |
 | --- | --- | --- |
 | `GEMMA_API_KEY` | API Key for accessing Gemma 4 model endpoints | **Secret.** Never commit or share publicly. |
 | `GEMMA_MODEL` | Official model identifier string for Gemma 4 | Must use the identifier verified by Person 1. |
 
-- `.env` contains local secrets and is strictly ignored by Git.
-- `.env.example` contains non-sensitive placeholders for documentation purposes.
+---
+
+## Running the Application
+
+To run the Stage 4 RAG agent investigation demo:
+
+```powershell
+python backend/main.py
+```
 
 ---
 
 ## Running Tests
 
-To run the complete Stage 2 test suite (offline):
+To run the complete Stage 4 test suite (100% offline):
 
 ```powershell
 python -m unittest discover -s tests -p "test_*.py"
 ```
 
-To run individual test files:
+To run individual test modules:
 ```powershell
+python -m unittest tests/test_indexing.py
+python -m unittest tests/test_retrieval.py
+python -m unittest tests/test_agent.py
+python -m unittest tests/test_registry.py
 python -m unittest tests/test_repository.py
 python -m unittest tests/test_tools.py
 ```
@@ -162,23 +213,19 @@ python -m unittest tests/test_tools.py
 
 ## Security Guidelines
 
-To maintain security and prevent credential leakage:
 - **Never commit `.env`** to version control.
 - **Never expose `GEMMA_API_KEY`** in documentation, commits, or client-side code.
 - **Never hardcode API keys** directly into Python files.
-- Always treat user-supplied paths and URLs as untrusted input.
-- Enforce strict repository-root boundaries for file operations.
+- Models cannot control `repo_root` or bypass Stage 2 filesystem security boundaries.
 
 ---
 
 ## Roadmap
 
-RepoPilot will be developed in structured stages:
-
 - **Stage 1:** Foundation + Gemma 4 Connectivity
-- **Stage 2 (Current):** GitHub repository ingestion + repository exploration tools
+- **Stage 2:** GitHub repository ingestion + repository exploration tools
 - **Stage 3:** Agent tool calling + autonomous investigation loop
-- **Stage 4:** Repository indexing + retrieval/RAG
+- **Stage 4 (Current):** Repository indexing + retrieval/RAG
 - **Stage 5:** Agent Skill implementation
 - **Stage 6:** Frontend + multimodal capabilities + final integration
 

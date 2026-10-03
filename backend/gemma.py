@@ -1,7 +1,13 @@
 """Gemma 4 Client implementation using the Google GenAI SDK."""
 
-from google import genai
-from google.genai import errors
+try:
+    from google import genai
+    from google.genai import errors
+    GENAI_AVAILABLE = True
+except ImportError:
+    genai = None
+    errors = None
+    GENAI_AVAILABLE = False
 
 from backend.config import get_settings, ConfigurationError
 
@@ -33,6 +39,9 @@ class GemmaClient:
             raise ConfigurationError("GEMMA_API_KEY must be provided.")
         if not self._model:
             raise ConfigurationError("GEMMA_MODEL must be provided.")
+
+        if not GENAI_AVAILABLE:
+            raise GemmaAPIError("The 'google-genai' SDK is not installed. Please install it with 'pip install google-genai'.")
 
         self._client = genai.Client(api_key=self._api_key)
 
@@ -76,6 +85,58 @@ class GemmaClient:
             if self._api_key and self._api_key in err_msg:
                 err_msg = err_msg.replace(self._api_key, "[REDACTED]")
             raise GemmaAPIError(f"Unexpected error while communicating with Gemma API: {err_msg}") from None
+
+    def generate_with_tools(
+        self,
+        contents: str | list,
+        tools: list | None = None,
+        system_instruction: str | None = None,
+    ) -> dict:
+        """Generate content with tool calling support.
+
+        Args:
+            contents: Prompt string or list of conversation message dicts.
+            tools: List of tool declarations.
+            system_instruction: Optional system instruction prompt.
+
+        Returns:
+            dict: Structured response with 'text' and 'function_calls'.
+        """
+        if not GENAI_AVAILABLE:
+            raise GemmaAPIError("The 'google-genai' SDK is not installed. Please install it with 'pip install google-genai'.")
+
+        try:
+            config = {}
+            if system_instruction:
+                config["system_instruction"] = system_instruction
+            if tools:
+                config["tools"] = tools
+
+            response = self._client.models.generate_content(
+                model=self._model,
+                contents=contents,
+                config=config if config else None,
+            )
+
+            text_content = response.text if response.text else ""
+            calls = []
+
+            if hasattr(response, "function_calls") and response.function_calls:
+                for call in response.function_calls:
+                    calls.append({
+                        "name": getattr(call, "name", ""),
+                        "args": dict(getattr(call, "args", {})),
+                    })
+
+            return {
+                "text": text_content,
+                "function_calls": calls,
+            }
+        except Exception as e:
+            err_msg = str(e)
+            if self._api_key and self._api_key in err_msg:
+                err_msg = err_msg.replace(self._api_key, "[REDACTED]")
+            raise GemmaAPIError(f"Gemma API request failed: {err_msg}") from None
 
 
 def generate_response(prompt: str) -> str:

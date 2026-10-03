@@ -3,6 +3,7 @@
 import os
 import sys
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 # Ensure project root is on sys.path
@@ -45,11 +46,12 @@ class TestGemmaConfiguration(unittest.TestCase):
             os.environ["GEMMA_API_KEY"] = "dummy_key_for_test"
             os.environ["GEMMA_MODEL"] = "gemma-4-31b-it"
 
-            client = GemmaClient()
-            with self.assertRaises(ValueError):
-                client.generate("")
-            with self.assertRaises(ValueError):
-                client.generate("   \n\t  ")
+            with patch("backend.gemma.GENAI_AVAILABLE", True), patch("backend.gemma.genai"):
+                client = GemmaClient()
+                with self.assertRaises(ValueError):
+                    client.generate("")
+                with self.assertRaises(ValueError):
+                    client.generate("   \n\t  ")
         finally:
             if saved_key is not None:
                 os.environ["GEMMA_API_KEY"] = saved_key

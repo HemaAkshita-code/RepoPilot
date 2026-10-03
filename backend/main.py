@@ -1,4 +1,6 @@
-"""Entry point for testing Gemma 4 model generation in RepoPilot."""
+"""
+Entry point for executing RepoPilot Stage 3 Agent investigations.
+"""
 
 import sys
 from pathlib import Path
@@ -9,28 +11,45 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 from backend.config import get_settings, ConfigurationError
-from backend.gemma import generate_response, GemmaAPIError
+from backend.repository import load_local_repository
+from backend.agent import ToolRegistry, RepoPilotAgent
 
 
 def main() -> None:
-    """Execute simple test prompt with the configured Gemma 4 model."""
+    """Execute Stage 3 RepoPilot investigation demo."""
     try:
         settings = get_settings()
-        print(f"Loaded configuration for model: {settings.model}")
+        print(f"Loaded RepoPilot configuration for model: {settings.model}")
     except ConfigurationError as e:
-        print(f"Configuration error: {e}", file=sys.stderr)
-        sys.exit(1)
+        print(f"Configuration warning: {e}", file=sys.stderr)
+        print("Note: Set GEMMA_API_KEY and GEMMA_MODEL in .env to run with real LLM endpoints.\n")
 
-    prompt = "Explain what a GitHub repository is in one sentence."
-    print(f"Prompt: {prompt}\n")
+    # Step 1: Load repository
+    repo_path = project_root
+    print(f"Loading local repository at: {repo_path}")
+    repository = load_local_repository(repo_path)
 
-    try:
-        response = generate_response(prompt)
-        print("Response:")
-        print(response)
-    except GemmaAPIError as e:
-        print(f"Error generating response: {e}", file=sys.stderr)
-        sys.exit(1)
+    # Step 2: Initialize Tool Registry
+    registry = ToolRegistry(repository)
+    print(f"Registered tools: {', '.join(registry.list_tools())}")
+
+    # Step 3: Initialize Agent
+    agent = RepoPilotAgent(registry=registry, verbose=True)
+
+    # Step 4: Run Question
+    question = "Where are the repository investigation tools implemented?"
+    print(f"\nUser Question: {question}\n")
+
+    response = agent.run(question)
+
+    print("\n" + "=" * 50)
+    print("INVESTIGATION COMPLETE")
+    print("=" * 50)
+    print(f"Status: {response.status}")
+    print(f"Steps taken: {response.steps_count}")
+    print(f"Evidence gathered: {', '.join(response.evidence) if response.evidence else 'None'}")
+    print("\nFinal Answer:")
+    print(response.final_answer)
 
 
 if __name__ == "__main__":
