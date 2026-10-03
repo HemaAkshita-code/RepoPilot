@@ -1,3 +1,1 @@
-"""
-RepoPilot backend package.
-"""
+"""RepoPilot backend package."""

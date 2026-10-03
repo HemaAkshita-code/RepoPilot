@@ -1,3 +1,5 @@
+
+=======
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -54,3 +56,4 @@ Thumbs.db
 *.swp
 *.swo
 *~
+>>>>>>> b4cae586b64c2d522b70eeac1ae39e8fc50c8b2b
