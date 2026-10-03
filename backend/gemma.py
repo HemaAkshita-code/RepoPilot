@@ -90,21 +90,13 @@ class GemmaClient:
             raise GemmaAPIError(f"Unexpected error while communicating with Gemma API: {err_msg}") from None
 
     def generate_with_tools(
-    self,
-    contents: str | list,
-    tools: list | None = None,
-    system_instruction: str | None = None,
-) -> dict:
-        """Generate content with manual tool-calling support.
+        self,
+        contents: str | list,
+        tools: list | None = None,
+        system_instruction: str | None = None,
+    ) -> dict:
+        """Generate content with manual tool-calling support."""
 
-        RepoPilot internally uses:
-            {"role": "user"|"model", "content": "..."}
-            {"function_calls": [...]}
-            {"function_results": [...]}
-
-        This method converts that internal representation into the
-        native Google Gen AI Content/Part representation.
-        """
         if not GENAI_AVAILABLE:
             raise GemmaAPIError(
                 "The 'google-genai' SDK is not installed. "
@@ -115,73 +107,47 @@ class GemmaClient:
             from google.genai import types
 
             # ---------------------------------------------------------
-            # 1. Convert RepoPilot conversation -> Google Gen AI format
+            # 1. Convert RepoPilot messages -> Google GenAI contents
             # ---------------------------------------------------------
             if isinstance(contents, str):
                 google_contents = contents
+
             else:
                 google_contents = []
 
                 for message in contents:
                     role = message.get("role", "user")
+                    parts = []
 
-                    # Normal text content
+                    # Normal text
                     text = message.get("content")
-
                     if text:
-                        google_contents.append(
-                            types.Content(
-                                role=role,
-                                parts=[
-                                    types.Part.from_text(text=text)
-                                ],
-                            )
+                        parts.append(
+                            types.Part.from_text(text=text)
                         )
 
-                    # Model-generated function calls
-                    function_calls = message.get("function_calls", [])
+                    # Model function calls
+                    for call in message.get("function_calls", []):
+                        name = call.get("name")
+                        args = call.get("args", {})
 
-                    if function_calls:
-                        call_parts = []
-
-                        for call in function_calls:
-                            name = call.get("name", "")
-                            args = call.get("args", {})
-
-                            if not name:
-                                continue
-
-                            call_parts.append(
+                        if name:
+                            parts.append(
                                 types.Part.from_function_call(
                                     name=name,
                                     args=args,
                                 )
                             )
 
-                        if call_parts:
-                            google_contents.append(
-                                types.Content(
-                                    role="model",
-                                    parts=call_parts,
-                                )
-                            )
+                    # Function results
+                    for result in message.get("function_results", []):
+                        tool_name = (
+                            result.get("tool_name")
+                            or result.get("name")
+                        )
 
-                    # Tool execution results
-                    function_results = message.get("function_results", [])
-
-                    if function_results:
-                        response_parts = []
-
-                        for result in function_results:
-                            tool_name = (
-                                result.get("tool_name")
-                                or result.get("name")
-                            )
-
-                            if not tool_name:
-                                continue
-
-                            response_parts.append(
+                        if tool_name:
+                            parts.append(
                                 types.Part.from_function_response(
                                     name=tool_name,
                                     response={
@@ -190,13 +156,20 @@ class GemmaClient:
                                 )
                             )
 
-                        if response_parts:
-                            google_contents.append(
-                                types.Content(
-                                    role="tool",
-                                    parts=response_parts,
-                                )
+                    if parts:
+                        # Google GenAI expects model/user roles.
+                        # Tool results are sent as a user turn containing
+                        # function_response parts.
+                        google_role = (
+                            "model" if role == "model" else "user"
+                        )
+
+                        google_contents.append(
+                            types.Content(
+                                role=google_role,
+                                parts=parts,
                             )
+                        )
 
             # ---------------------------------------------------------
             # 2. Convert RepoPilot tool schemas -> Google Tool
@@ -228,7 +201,7 @@ class GemmaClient:
                 ]
 
             # ---------------------------------------------------------
-            # 3. Build native Google configuration
+            # 3. Build configuration
             # ---------------------------------------------------------
             config_kwargs = {}
 
@@ -238,11 +211,9 @@ class GemmaClient:
             if google_tools:
                 config_kwargs["tools"] = google_tools
 
-            config = (
-                types.GenerateContentConfig(**config_kwargs)
-                if config_kwargs
-                else None
-            )
+            config = types.GenerateContentConfig(
+                **config_kwargs
+            ) if config_kwargs else None
 
             # ---------------------------------------------------------
             # 4. Call Gemma
@@ -254,19 +225,18 @@ class GemmaClient:
             )
 
             # ---------------------------------------------------------
-            # 5. Extract model response
+            # 5. Extract response
             # ---------------------------------------------------------
             text_content = response.text or ""
             calls = []
 
-            if response.function_calls:
-                for call in response.function_calls:
-                    calls.append(
-                        {
-                            "name": call.name,
-                            "args": dict(call.args or {}),
-                        }
-                    )
+            for call in (response.function_calls or []):
+                calls.append(
+                    {
+                        "name": call.name,
+                        "args": dict(call.args or {}),
+                    }
+                )
 
             return {
                 "text": text_content,
