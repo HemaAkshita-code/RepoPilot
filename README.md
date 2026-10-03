@@ -8,27 +8,20 @@ RepoPilot is designed to assist developers in navigating, exploring, and analyzi
 
 ## Current Stage
 
-**Stage 1 — Foundation + Gemma 4 Connectivity**
+**Stage 2 — Repository Acquisition & Investigation Tools**
 
-Stage 1 establishes the initial technical foundation:
-- Project directory structure
-- Python environment setup
-- Configuration management
-- Basic Gemma 4 model connectivity
-- Testing framework configuration
-- Open-source repository infrastructure
+Stage 2 completes the core codebase acquisition and investigation tool layer:
+- **Repository Acquisition (Person 2):** `Repository` abstraction, `load_local_repository`, `load_github_repository`, strict GitHub URL validation, and controlled workspace isolation (`WorkspaceManager`).
+- **Investigation Tools (Person 1):** `list_files()`, `read_file(path)`, and `search_code(query)`.
+- **Test Suites:** Offline unit tests for repository management (`tests/test_repository.py`) and investigation tools (`tests/test_tools.py`).
 
 ### ⚠️ Scope & Unimplemented Features
-The following features are **NOT** implemented in Stage 1 and represent future roadmap milestones:
-- GitHub repository ingestion
-- Repository exploration tools
+The following features are **NOT** implemented in Stage 2 and represent future roadmap milestones:
 - Autonomous agent loop
-- Tool calling
-- Code search
-- Repository mapping
+- Gemma tool calling loop
+- Repository indexing & vector databases
 - Retrieval-Augmented Generation (RAG)
 - Embeddings
-- Vector database integration
 - LangGraph framework integration
 - Agent Skills
 - User interface / frontend
@@ -36,19 +29,63 @@ The following features are **NOT** implemented in Stage 1 and represent future r
 
 ---
 
+## Repository Acquisition & Investigation Tools (Stage 2)
+
+### Repository Acquisition Layer
+- **`load_local_repository(path)`**: Validates local directory existence, permissions, and normalizes root path.
+- **`load_github_repository(url)`**: Safely clones public HTTPS GitHub repositories into a controlled workspace outside the project source tree.
+- **`WorkspaceManager`**: Isolates cloned repositories into temporary directories to prevent workspace contamination.
+
+### Repository Investigation Tools
+All tools operate relative to a controlled repository root (`repo_root`), which can be passed as a `Repository` object, `Path`, or `str`.
+
+1. **`list_files(repo_root)`**:
+   - Recursively discovers all repository-relative file paths.
+   - Deterministically ordered (alphabetical).
+   - Excludes `.git`, `node_modules`, `__pycache__`, `.venv`, and common cache/build directories.
+
+2. **`read_file(path, repo_root)`**:
+   - Safely reads repository-relative files.
+   - **Security:** Prevents path traversal (`../../secret.txt`), rejects absolute paths, and blocks symlinks pointing outside the repository root.
+   - **Binary Handling:** Detects binary content (`\x00` bytes) and avoids dumping binary data into output.
+   - **Size Limits:** Enforces content size limits (`max_bytes`) and clearly reports truncation status.
+
+3. **`search_code(query, repo_root)`**:
+   - Recursively searches text files for a query string (case-insensitive by default).
+   - Excludes binary files and ignored directories.
+   - Returns structured matches with relative path, line number, and trimmed line snippet.
+
+---
+
 ## Project Architecture
 
-Below is the intended project layout for **Stage 1**:
+Below is the project layout for **Stage 2**:
 
 ```text
 RepoPilot/
 ├── backend/
+│   ├── repository/
+│   │   ├── __init__.py
+│   │   ├── exceptions.py
+│   │   ├── github.py
+│   │   ├── local.py
+│   │   ├── models.py
+│   │   └── workspace.py
+│   ├── tools/
+│   │   ├── __init__.py
+│   │   ├── exceptions.py
+│   │   ├── list_files.py
+│   │   ├── read_file.py
+│   │   ├── search_code.py
+│   │   └── security.py
 │   ├── config.py
 │   ├── gemma.py
 │   └── main.py
 │
 ├── tests/
-│   └── test_gemma.py
+│   ├── test_gemma.py
+│   ├── test_repository.py
+│   └── test_tools.py
 │
 ├── .env.example
 ├── .gitignore
@@ -56,8 +93,6 @@ RepoPilot/
 ├── README.md
 └── requirements.txt
 ```
-
-> **Note:** Backend implementation files (`backend/`), test suites (`tests/`), and dependency manifests (`requirements.txt`) are managed separately by the backend team (Person 1).
 
 ---
 
@@ -93,8 +128,6 @@ Follow these steps to set up RepoPilot locally on Windows using PowerShell:
    ```
    Edit `.env` to insert your API key and confirmed model identifier.
 
-   > **Important:** The exact `GEMMA_MODEL` identifier string will be provided and verified by Person 1 (Backend Lead).
-
 ---
 
 ## Environment Variables
@@ -111,47 +144,18 @@ RepoPilot uses environment variables for configuration. These are loaded from `.
 
 ---
 
-## Running the Application
-
-To run the Stage 1 CLI application, execute the entry point script (once implemented by Person 1):
-
-```powershell
-python backend/main.py
-```
-
-*(This is the expected command structure for Stage 1 execution).*
-
----
-
 ## Running Tests
 
-To run unit and connectivity tests for Stage 1:
+To run the complete Stage 2 test suite (offline):
 
 ```powershell
-pytest
+python -m unittest discover -s tests -p "test_*.py"
 ```
 
----
-
-## Expected Output Flow
-
-Stage 1 validates basic end-to-end connectivity with Gemma 4:
-
-```text
-User prompt
-    ↓
-RepoPilot
-    ↓
-Gemma 4
-    ↓
-Model response
-```
-
-*Illustrative Example Output:*
-```text
-[RepoPilot Stage 1] Initializing Gemma 4 connectivity...
-[Prompt]: Hello, RepoPilot!
-[Response]: Hello! I am RepoPilot powered by Gemma 4. Ready to investigate repositories.
+To run individual test files:
+```powershell
+python -m unittest tests/test_repository.py
+python -m unittest tests/test_tools.py
 ```
 
 ---
@@ -162,8 +166,8 @@ To maintain security and prevent credential leakage:
 - **Never commit `.env`** to version control.
 - **Never expose `GEMMA_API_KEY`** in documentation, commits, or client-side code.
 - **Never hardcode API keys** directly into Python files.
-- Always use `.env` for local execution and `.env.example` as a placeholder reference.
-- Inspect `git status` and `git diff` prior to every commit to verify secrets are excluded.
+- Always treat user-supplied paths and URLs as untrusted input.
+- Enforce strict repository-root boundaries for file operations.
 
 ---
 
@@ -171,8 +175,8 @@ To maintain security and prevent credential leakage:
 
 RepoPilot will be developed in structured stages:
 
-- **Stage 1 (Current):** Foundation + Gemma 4 Connectivity
-- **Stage 2:** GitHub repository ingestion + repository exploration tools
+- **Stage 1:** Foundation + Gemma 4 Connectivity
+- **Stage 2 (Current):** GitHub repository ingestion + repository exploration tools
 - **Stage 3:** Agent tool calling + autonomous investigation loop
 - **Stage 4:** Repository indexing + retrieval/RAG
 - **Stage 5:** Agent Skill implementation
