@@ -50,11 +50,12 @@ class EvidenceItem:
 class InvestigationContext:
     """
     Maintains structured investigation evidence distinguishing between
-    retrieved RAG chunks and directly inspected files.
+    retrieved RAG chunks, directly inspected files, search matches, and structural AST evidence.
     """
     retrieved_chunks: List[EvidenceItem] = field(default_factory=list)
     inspected_files: List[EvidenceItem] = field(default_factory=list)
     search_matches: List[EvidenceItem] = field(default_factory=list)
+    structural_evidence: List[EvidenceItem] = field(default_factory=list)
 
     def add_retrieved_chunk(self, path: str, start_line: int, end_line: int, snippet: str, score: float) -> None:
         item = EvidenceItem(
@@ -85,10 +86,20 @@ class InvestigationContext:
         )
         self.search_matches.append(item)
 
+    def add_structural_evidence(self, path: str, start_line: Optional[int] = None, end_line: Optional[int] = None, snippet: str = "") -> None:
+        item = EvidenceItem(
+            path=path,
+            start_line=start_line,
+            end_line=end_line,
+            evidence_type="structural_analysis",
+            snippet=snippet,
+        )
+        self.structural_evidence.append(item)
+
     def get_all_source_locations(self) -> List[str]:
         """Returns deduplicated list of all source locations cited."""
         locs: List[str] = []
-        for item in self.inspected_files + self.retrieved_chunks + self.search_matches:
+        for item in self.inspected_files + self.retrieved_chunks + self.search_matches + self.structural_evidence:
             loc = item.source_location
             if loc not in locs:
                 locs.append(loc)

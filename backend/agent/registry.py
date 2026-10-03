@@ -178,6 +178,121 @@ class ToolRegistry:
         manager = get_default_skill_manager()
         manager.register_skills_to_tool_registry(self)
 
+    def register_structural_tools(self) -> None:
+        """Registers Stage 6 Structural Analysis Tools into the registry."""
+        from backend.analysis.tools import (
+            find_symbol as find_symbol_fn,
+            find_references as find_references_fn,
+            get_symbol_relationships as get_symbol_relationships_fn,
+            trace_call_flow as trace_call_flow_fn,
+            get_file_dependencies as get_file_dependencies_fn,
+        )
+
+        self.register(
+            name="find_symbol",
+            func=find_symbol_fn,
+            description="Find definitions of a symbol by name or identifier in the repository.",
+            parameters={
+                "type": "OBJECT",
+                "properties": {
+                    "symbol_name": {
+                        "type": "STRING",
+                        "description": "Symbol name or identifier (e.g. 'login' or 'backend/auth.py::login').",
+                    },
+                },
+                "required": ["symbol_name"],
+            },
+            param_validators={
+                "symbol_name": lambda val: isinstance(val, str) and bool(val.strip()),
+            },
+        )
+
+        self.register(
+            name="find_references",
+            func=find_references_fn,
+            description="Find references, AST call sites, and code occurrences of a symbol in the repository.",
+            parameters={
+                "type": "OBJECT",
+                "properties": {
+                    "symbol_name": {
+                        "type": "STRING",
+                        "description": "Symbol name or identifier to search references for.",
+                    },
+                },
+                "required": ["symbol_name"],
+            },
+            param_validators={
+                "symbol_name": lambda val: isinstance(val, str) and bool(val.strip()),
+            },
+        )
+
+        self.register(
+            name="get_symbol_relationships",
+            func=get_symbol_relationships_fn,
+            description="Retrieve incoming and outgoing structural relationships (calls, called_by, imports, inherits) for a symbol.",
+            parameters={
+                "type": "OBJECT",
+                "properties": {
+                    "symbol_name": {
+                        "type": "STRING",
+                        "description": "Symbol name or identifier.",
+                    },
+                },
+                "required": ["symbol_name"],
+            },
+            param_validators={
+                "symbol_name": lambda val: isinstance(val, str) and bool(val.strip()),
+            },
+        )
+
+        self.register(
+            name="trace_call_flow",
+            func=trace_call_flow_fn,
+            description="Trace bounded call hierarchy (upstream or downstream) starting from a symbol.",
+            parameters={
+                "type": "OBJECT",
+                "properties": {
+                    "symbol": {
+                        "type": "STRING",
+                        "description": "Starting symbol name or identifier (e.g. 'login').",
+                    },
+                    "direction": {
+                        "type": "STRING",
+                        "description": "Traversal direction: 'downstream' (called functions) or 'upstream' (calling functions).",
+                    },
+                    "depth": {
+                        "type": "INTEGER",
+                        "description": "Maximum call graph depth (defaults to 3, bounded 1 to 10).",
+                    },
+                },
+                "required": ["symbol"],
+            },
+            param_validators={
+                "symbol": lambda val: isinstance(val, str) and bool(val.strip()),
+                "direction": lambda val: isinstance(val, str) and val.lower().strip() in ["downstream", "upstream"],
+                "depth": lambda val: isinstance(val, int) and val > 0,
+            },
+        )
+
+        self.register(
+            name="get_file_dependencies",
+            func=get_file_dependencies_fn,
+            description="Get import dependencies for a specific repository file.",
+            parameters={
+                "type": "OBJECT",
+                "properties": {
+                    "file_path": {
+                        "type": "STRING",
+                        "description": "Repository-relative POSIX file path (e.g. 'backend/routes.py').",
+                    },
+                },
+                "required": ["file_path"],
+            },
+            param_validators={
+                "file_path": lambda val: isinstance(val, str) and bool(val.strip()),
+            },
+        )
+
     def register(
         self,
         name: str,
@@ -332,7 +447,7 @@ class ToolRegistry:
         res: Dict[str, Any],
         context: Any,
     ) -> None:
-        """Helper method to populate InvestigationContext from atomic tool results."""
+        """Helper method to populate InvestigationContext from atomic and structural tool results."""
         if tool_name == "search_repository":
             chunks = res.get("chunks", [])
             for c in chunks:
@@ -356,4 +471,27 @@ class ToolRegistry:
                 snippet = m.get("snippet", "")
                 if p:
                     context.add_search_match(p, line, snippet)
+        elif tool_name in ["find_symbol", "find_references", "get_symbol_relationships", "trace_call_flow", "get_file_dependencies"]:
+            if tool_name == "find_symbol":
+                for sym in res.get("symbols", []):
+                    p = sym.get("file_path")
+                    start = sym.get("start_line")
+                    end = sym.get("end_line")
+                    if p:
+                        context.add_structural_evidence(p, start, end, f"Symbol definition: {sym.get('name')}")
+            elif tool_name == "find_references":
+                for ref in res.get("ast_references", []):
+                    ev = ref.get("evidence", {})
+                    p = ev.get("file_path")
+                    start = ev.get("start_line")
+                    end = ev.get("end_line")
+                    if p:
+                        context.add_structural_evidence(p, start, end, f"AST Reference to {res.get('query')}")
+            elif tool_name == "trace_call_flow":
+                for node in res.get("nodes", []):
+                    p = node.get("file_path")
+                    start = node.get("start_line")
+                    end = node.get("end_line")
+                    if p:
+                        context.add_structural_evidence(p, start, end, f"Call flow node: {node.get('name')}")
 

@@ -1,147 +1,115 @@
 # RepoPilot
 
-An open-source AI agent for investigating and understanding unfamiliar GitHub repositories.
+An open-source AI agent system for investigating and understanding unfamiliar software repositories.
 
-RepoPilot is designed to assist developers in navigating, exploring, and analyzing codebases. The system uses **Gemma 4** as its primary open-weight reasoning model.
-
----
-
-### Current Stage
-
-**Stage 5 — Reusable Agent Skills & Investigation Workflows**
-
-Stage 5 equips RepoPilot with a reusable Agent Skill abstraction layer:
-- **Skill Engine & Lifecycle (Person 1):** `BaseSkill`, `SkillResult`, `Finding`, `SkillMetadata`, `SkillManager`, input validation, bounded execution, security enforcement, and `ToolRegistry` binding.
-- **Built-in Investigation Skills (Person 2):**
-  1. `ArchitectureSkill` (`understand_architecture`): Investigates high-level layout, entry points, configuration, and major subsystems.
-  2. `FeatureTraceSkill` (`trace_feature`): Traces a feature, concept, or data model across repository components using semantic RAG + code search + file inspection.
-  3. `APIFlowSkill` (`investigate_api_flow`): Maps API request progression across routes, controllers, services, and data access layers.
-  4. `AuthSkill` (`investigate_auth`): Analyzes authentication endpoints, security middleware, token handling, and authorization boundaries.
-- **Evidence Provenance & Context Integration:** All skills preserve evidence provenance within `InvestigationContext`, distinguishing observed facts from inferences.
-- **Test Coverage:** Complete offline test suite (87 tests across `tests/test_skills.py`, `tests/test_indexing.py`, `tests/test_retrieval.py`, `tests/test_agent.py`, `tests/test_registry.py`, `tests/test_repository.py`, `tests/test_tools.py`, `tests/test_gemma.py`).
-
-### ⚠️ Scope & Unimplemented Features
-The following features are **NOT** implemented in Stage 5 and represent future roadmap milestones:
-- LangGraph / external agent framework integration (built natively)
-- Frontend UI / web interface
-- Autonomous repository code modification (RepoPilot is read-only)
-- Pull-request analysis / issue tracker integration
+RepoPilot assists developers in navigating, exploring, and analyzing codebases using **Gemma 4** as its primary open-weight reasoning model.
 
 ---
 
-## Stage 5 Architecture & Capabilities
+## Current Status
+
+**Stage 8 — Hardening, Deterministic Evaluation & Release Readiness (Final Stage)**
+
+RepoPilot is fully implemented, evaluated, and hardened across 8 development stages:
+- **Deterministic Fixture Repository (`tests/fixtures/fixture_repo`):** Multi-module Python codebase for offline benchmark evaluation.
+- **Offline Benchmark Evaluation Dataset (`tests/test_evaluation.py`):** 7 core investigation benchmark cases measuring file retrieval precision, symbol identification accuracy, relationship correctness, and citation accuracy.
+- **Failure-Case & Resilience Suite (`tests/test_failure_cases.py`):** Safe handling of missing files, bad syntax, cyclic calls, binary files, stale indexes, and agent iteration bounds.
+- **Evidence Integrity Suite (`tests/test_evidence_integrity.py`):** Strict evidence provenance, non-fabrication of source facts, and explicit resolution status tracking (`resolved`, `unresolved`, `ambiguous`).
+- **Portable Agent Skill Package (`skills/repository-investigator/`):** Specification-compliant Agent Skill package enforcing investigation methodology for external AI agents.
+- **Documentation Suite (`docs/`):** Detailed architectural specs ([docs/architecture.md](docs/architecture.md)), evaluation results ([docs/evaluation.md](docs/evaluation.md)), and security model ([docs/security.md](docs/security.md)).
+
+---
+
+## High-Level Architecture
 
 ```text
-                         RepoPilot
-                            │
-                            ▼
-                         Gemma 4
-                            │
-                  ┌─────────┴─────────┐
-                  │                   │
-             Atomic Tools        Agent Skills
-                  │                   │
-                  │            ┌──────┴──────┐
-                  │            │             │
-                  │       Architecture   Feature Trace
-                  │            Skill          Skill
-                  │            │             │
-                  │            └──────┬──────┘
-                  │                   │
-                  └──────────┬────────┘
-                             ▼
-                       Tool Registry
-                             │
-              ┌──────────────┼──────────────┐
-              ▼              ▼              ▼
-         list_files      read_file      search_code
-                                            │
-                                            │
-                                   search_repository
-                                            │
-                                            ▼
-                                   Stage 4 Retrieval
-                                            │
-                                  ┌─────────┴─────────┐
-                                  ▼                   ▼
-                              Vector Store       Investigation
-                                                     Context
-                                                        │
-                                                        ▼
-                                                     Evidence
-                                                        │
-                                                        ▼
-                                                  Final Answer
+                         USER
+                           │
+                           ▼
+                    ┌──────────────┐
+                    │   Gemma 4    │
+                    │ Agent Reason │
+                    └──────┬───────┘
+                           │
+                           ▼
+                    ┌──────────────┐
+                    │ Tool Registry│
+                    └──────┬───────┘
+                           │
+          ┌────────────────┼─────────────────┐
+          │                │                 │
+          ▼                ▼                 ▼
+    Repository       Semantic RAG      Structural
+      Tools                             Analysis
+          │                │                 │
+          └────────────────┼─────────────────┘
+                           ▼
+                 ┌────────────────────┐
+                 │ Investigation      │
+                 │ Context            │
+                 └─────────┬──────────┘
+                           │
+                           ▼
+                 ┌────────────────────┐
+                 │ Evidence & Findings│
+                 └─────────┬──────────┘
+                           │
+                           ▼
+                 ┌────────────────────┐
+                 │ Evidence-backed    │
+                 │ Final Answer       │
+                 └────────────────────┘
+
+
+             Portable Agent Skill
+             ────────────────────
+             repository-investigator
+                         │
+                         ▼
+             Investigation methodology
+                         │
+                         ▼
+             Compatible AI agents
 ```
-
-### Key Differences: Tools vs. Skills
-
-| Dimension | Atomic Tool | Agent Skill |
-| --- | --- | --- |
-| **Abstraction Level** | Low-level repository operation (`read_file`, `search_code`). | High-level investigation workflow (`understand_architecture`, `trace_feature`). |
-| **Execution** | Atomic, single step. | Bounded sequence combining multiple tools & retrieval calls. |
-| **Output** | Raw text / match arrays. | Structured `SkillResult` with `findings` (facts vs inferences) and cited `evidence`. |
-| **Evidence** | Directly populates `InvestigationContext`. | Propagates line citations into `InvestigationContext` and `AgentState`. |
 
 ---
 
-## Project Architecture
-
-Below is the project layout for **Stage 5**:
+## Project Structure
 
 ```text
 RepoPilot/
 ├── backend/
-│   ├── agent/
-│   │   ├── __init__.py
-│   │   ├── agent.py
-│   │   ├── context.py
-│   │   ├── models.py
-│   │   ├── prompts.py
-│   │   ├── registry.py
-│   │   └── retrieval.py
-│   ├── indexing/
-│   │   ├── __init__.py
-│   │   ├── chunking.py
-│   │   ├── embeddings.py
-│   │   ├── indexer.py
-│   │   └── store.py
-│   ├── repository/
-│   │   ├── __init__.py
-│   │   ├── exceptions.py
-│   │   ├── github.py
-│   │   ├── local.py
-│   │   ├── models.py
-│   │   └── workspace.py
-│   ├── skills/
-│   │   ├── __init__.py
-│   │   ├── api_flow.py
-│   │   ├── architecture.py
-│   │   ├── auth.py
-│   │   ├── base.py
-│   │   ├── feature_trace.py
-│   │   ├── manager.py
-│   │   └── models.py
-│   ├── tools/
-│   │   ├── __init__.py
-│   │   ├── exceptions.py
-│   │   ├── list_files.py
-│   │   ├── read_file.py
-│   │   ├── search_code.py
-│   │   └── security.py
-│   ├── config.py
-│   ├── gemma.py
-│   └── main.py
+│   ├── agent/                 # Agent loop, Tool Registry, Context & Evidence tracking
+│   ├── analysis/              # Static Python AST analysis & Call Flow engine
+│   ├── indexing/              # Chunking, Vector Store & Semantic Retrieval RAG
+│   ├── repository/            # Local repo loader & public GitHub cloner
+│   ├── skills/                # Internal RepoPilot Python skill infrastructure
+│   ├── tools/                 # Safe file reading, listing & searching tools
+│   ├── config.py              # Environment configuration & settings
+│   ├── gemma.py               # Gemma 4 LLM client integration
+│   └── main.py                # Demonstration CLI entry point
 │
-├── tests/
-│   ├── test_agent.py
-│   ├── test_gemma.py
-│   ├── test_indexing.py
-│   ├── test_registry.py
-│   ├── test_repository.py
-│   ├── test_retrieval.py
-│   ├── test_skills.py
-│   └── test_tools.py
+├── docs/                      # Technical Documentation
+│   ├── architecture.md        # Architectural breakdown & layer specification
+│   ├── evaluation.md          # Evaluation methodology & benchmark metrics
+│   └── security.md            # Security controls & boundary enforcement
+│
+├── skills/
+│   └── repository-investigator/  # Portable Agent Skill package (Agent Skills standard)
+│       ├── SKILL.md
+│       └── references/
+│
+├── tests/                     # 100% Offline Test Suite
+│   ├── fixtures/fixture_repo/ # Deterministic evaluation codebase
+│   ├── test_evaluation.py     # Stage 8 deterministic evaluation dataset
+│   ├── test_failure_cases.py  # Stage 8 failure-case resilience suite
+│   ├── test_evidence_integrity.py # Stage 8 evidence integrity suite
+│   ├── test_agent.py          # Stage 3 agent loop tests
+│   ├── test_analysis.py       # Stage 6 AST analyzer tests
+│   ├── test_indexing.py       # Stage 4 chunking & vector store tests
+│   ├── test_repository.py     # Stage 2 repository workspace tests
+│   ├── test_skills.py         # Stage 5 internal skills tests
+│   └── test_tools.py          # Stage 2 safe file tools tests
 │
 ├── .env.example
 ├── .gitignore
@@ -152,117 +120,72 @@ RepoPilot/
 
 ---
 
-## Windows / PowerShell Setup
+## Setup Instructions
 
-Follow these steps to set up RepoPilot locally on Windows using PowerShell:
+### 1. Clone the repository
+```powershell
+git clone https://github.com/your-username/RepoPilot.git
+cd RepoPilot
+```
 
-1. **Clone the repository:**
-   ```powershell
-   git clone https://github.com/your-username/RepoPilot.git
-   cd RepoPilot
-   ```
+### 2. Create and activate virtual environment
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+```
 
-2. **Create a virtual environment:**
-   ```powershell
-   python -m venv .venv
-   ```
+### 3. Install dependencies
+```powershell
+pip install -r requirements.txt
+```
 
-3. **Activate the virtual environment:**
-   ```powershell
-   .venv\Scripts\Activate.ps1
-   ```
-
-4. **Install dependencies:**
-   ```powershell
-   pip install -r requirements.txt
-   ```
-
-5. **Configure environment variables:**
-   Copy `.env.example` to create `.env`:
-   ```powershell
-   Copy-Item .env.example .env
-   ```
-   Edit `.env` to insert your API key and confirmed model identifier.
+### 4. Configure environment variables (Optional for live LLM mode)
+Copy `.env.example` to `.env`:
+```powershell
+Copy-Item .env.example .env
+```
+Edit `.env` to set your `GEMMA_API_KEY` and `GEMMA_MODEL`.
 
 ---
 
-## Environment Variables
+## Running the Demo CLI
 
-RepoPilot uses environment variables for configuration:
-
-| Variable | Description | Security / Notes |
-| --- | --- | --- |
-| `GEMMA_API_KEY` | API Key for accessing Gemma 4 model endpoints | **Secret.** Never commit or share publicly. |
-| `GEMMA_MODEL` | Official model identifier string for Gemma 4 | Must use the identifier verified by Person 1. |
-
----
-
-## Running the Application
-
-To run the Stage 5 agent investigation demo:
+Execute an investigation against the deterministic fixture repository:
 
 ```powershell
 python backend/main.py
 ```
 
+The CLI works **100% offline** if `GEMMA_API_KEY` is omitted, demonstrating tool execution, evidence collection, and grounded final synthesis.
+
 ---
 
-## Running Tests
+## Running Tests & Evaluation Suite
 
-To run the complete Stage 5 test suite (100% offline):
+Run the full offline test suite (all 145+ tests):
 
 ```powershell
 python -m unittest discover -s tests -p "test_*.py"
 ```
 
-To run individual test modules:
+To run individual evaluation suites:
 ```powershell
-python -m unittest tests/test_skills.py
-python -m unittest tests/test_indexing.py
-python -m unittest tests/test_retrieval.py
-python -m unittest tests/test_agent.py
-python -m unittest tests/test_registry.py
-python -m unittest tests/test_repository.py
-python -m unittest tests/test_tools.py
+python -m unittest tests/test_evaluation.py -v
+python -m unittest tests/test_failure_cases.py -v
+python -m unittest tests/test_evidence_integrity.py -v
 ```
 
 ---
 
-## Security Guidelines
+## Security Policy
 
-- **Never commit `.env`** to version control.
-- **Never expose `GEMMA_API_KEY`** in documentation, commits, or client-side code.
-- **Never hardcode API keys** directly into Python files.
-- Models cannot control `repo_root` or bypass Stage 2 filesystem security boundaries.
-- Skills cannot execute arbitrary code (`eval`, `exec`, `subprocess`) or modify repository files.
-
----
-
-## Roadmap
-
-- **Stage 1:** Foundation + Gemma 4 Connectivity
-- **Stage 2:** GitHub repository ingestion + repository exploration tools
-- **Stage 3:** Agent tool calling + autonomous investigation loop
-- **Stage 4:** Repository indexing + retrieval/RAG
-- **Stage 5 (Current):** Reusable Agent Skills & investigation workflows
-- **Stage 6:** Frontend + multimodal capabilities + final integrationon control.
-- **Never expose `GEMMA_API_KEY`** in documentation, commits, or client-side code.
-- **Never hardcode API keys** directly into Python files.
-- Models cannot control `repo_root` or bypass Stage 2 filesystem security boundaries.
+- RepoPilot is strictly **read-only**; code is never executed (`eval`, `exec`, `subprocess` forbidden).
+- Filesystem boundary enforcement (`resolve_safe_path`) prevents path traversal attacks outside the target repository.
+- Secrets (`GEMMA_API_KEY`) are excluded via `.gitignore` and redacted from logs.
+- Detailed security documentation is available in [docs/security.md](docs/security.md).
 
 ---
 
-## Roadmap
+## License
 
-- **Stage 1:** Foundation + Gemma 4 Connectivity
-- **Stage 2:** GitHub repository ingestion + repository exploration tools
-- **Stage 3:** Agent tool calling + autonomous investigation loop
-- **Stage 4 (Current):** Repository indexing + retrieval/RAG
-- **Stage 5:** Agent Skill implementation
-- **Stage 6:** Frontend + multimodal capabilities + final integration
-
----
-
-## Open Source & Licensing
-
-RepoPilot is an open-source project released under the [MIT License](LICENSE).
+RepoPilot is released under the [MIT License](LICENSE).

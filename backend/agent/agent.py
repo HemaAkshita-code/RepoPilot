@@ -27,6 +27,7 @@ class RepoPilotAgent:
         max_iterations: int = 8,
         verbose: bool = False,
         enable_skills: bool = False,
+        enable_structural_analysis: bool = False,
     ):
         self._registry = registry
         self._gemma_client = gemma_client
@@ -35,6 +36,9 @@ class RepoPilotAgent:
 
         if enable_skills:
             self._registry.register_built_in_skills()
+
+        if enable_structural_analysis:
+            self._registry.register_structural_tools()
 
     @property
     def registry(self) -> ToolRegistry:

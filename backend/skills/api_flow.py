@@ -98,6 +98,26 @@ class APIFlowSkill(BaseSkill):
                     loc = f"{p}:{c.get('start_line', 1)}-{c.get('end_line', 1)}"
                     evidence_locs.append(loc)
 
+        # 2.5 Optional AST Call Flow Traversal (Stage 6 Structural Capability)
+        if registry.get_tool("trace_call_flow") is not None:
+            trace_res = registry.execute("trace_call_flow", {"symbol": endpoint_query, "direction": "downstream", "depth": 3}, context=context)
+            if trace_res.success and isinstance(trace_res.result, dict):
+                nodes = trace_res.result.get("nodes", [])
+                for node in nodes:
+                    p = node.get("file_path")
+                    start = node.get("start_line", 1)
+                    end = node.get("end_line", 1)
+                    if p:
+                        if p not in candidate_files:
+                            candidate_files.append(p)
+                        loc = f"{p}:{start}-{end}"
+                        evidence_locs.append(loc)
+                        findings.append(Finding(
+                            description=f"Discovered AST call flow node '{node.get('name')}' in {loc}",
+                            finding_type="observed",
+                            evidence_locations=[loc],
+                        ).to_dict())
+
         if not candidate_files:
             unresolved.append(f"No API routes or handlers discovered matching '{endpoint_query}'.")
             return SkillResult(
