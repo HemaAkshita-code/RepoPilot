@@ -9,6 +9,9 @@ except ImportError:
     errors = None
     GENAI_AVAILABLE = False
 
+from logging import config
+
+from backend import tools
 from backend.config import get_settings, ConfigurationError
 
 
@@ -87,57 +90,201 @@ class GemmaClient:
             raise GemmaAPIError(f"Unexpected error while communicating with Gemma API: {err_msg}") from None
 
     def generate_with_tools(
-        self,
-        contents: str | list,
-        tools: list | None = None,
-        system_instruction: str | None = None,
-    ) -> dict:
-        """Generate content with tool calling support.
+    self,
+    contents: str | list,
+    tools: list | None = None,
+    system_instruction: str | None = None,
+) -> dict:
+        """Generate content with manual tool-calling support.
 
-        Args:
-            contents: Prompt string or list of conversation message dicts.
-            tools: List of tool declarations.
-            system_instruction: Optional system instruction prompt.
+        RepoPilot internally uses:
+            {"role": "user"|"model", "content": "..."}
+            {"function_calls": [...]}
+            {"function_results": [...]}
 
-        Returns:
-            dict: Structured response with 'text' and 'function_calls'.
+        This method converts that internal representation into the
+        native Google Gen AI Content/Part representation.
         """
         if not GENAI_AVAILABLE:
-            raise GemmaAPIError("The 'google-genai' SDK is not installed. Please install it with 'pip install google-genai'.")
-
-        try:
-            config = {}
-            if system_instruction:
-                config["system_instruction"] = system_instruction
-            if tools:
-                config["tools"] = tools
-
-            response = self._client.models.generate_content(
-                model=self._model,
-                contents=contents,
-                config=config if config else None,
+            raise GemmaAPIError(
+                "The 'google-genai' SDK is not installed. "
+                "Please install it with 'pip install google-genai'."
             )
 
-            text_content = response.text if response.text else ""
+        try:
+            from google.genai import types
+
+            # ---------------------------------------------------------
+            # 1. Convert RepoPilot conversation -> Google Gen AI format
+            # ---------------------------------------------------------
+            if isinstance(contents, str):
+                google_contents = contents
+            else:
+                google_contents = []
+
+                for message in contents:
+                    role = message.get("role", "user")
+
+                    # Normal text content
+                    text = message.get("content")
+
+                    if text:
+                        google_contents.append(
+                            types.Content(
+                                role=role,
+                                parts=[
+                                    types.Part.from_text(text=text)
+                                ],
+                            )
+                        )
+
+                    # Model-generated function calls
+                    function_calls = message.get("function_calls", [])
+
+                    if function_calls:
+                        call_parts = []
+
+                        for call in function_calls:
+                            name = call.get("name", "")
+                            args = call.get("args", {})
+
+                            if not name:
+                                continue
+
+                            call_parts.append(
+                                types.Part.from_function_call(
+                                    name=name,
+                                    args=args,
+                                )
+                            )
+
+                        if call_parts:
+                            google_contents.append(
+                                types.Content(
+                                    role="model",
+                                    parts=call_parts,
+                                )
+                            )
+
+                    # Tool execution results
+                    function_results = message.get("function_results", [])
+
+                    if function_results:
+                        response_parts = []
+
+                        for result in function_results:
+                            tool_name = (
+                                result.get("tool_name")
+                                or result.get("name")
+                            )
+
+                            if not tool_name:
+                                continue
+
+                            response_parts.append(
+                                types.Part.from_function_response(
+                                    name=tool_name,
+                                    response={
+                                        "output": result,
+                                    },
+                                )
+                            )
+
+                        if response_parts:
+                            google_contents.append(
+                                types.Content(
+                                    role="tool",
+                                    parts=response_parts,
+                                )
+                            )
+
+            # ---------------------------------------------------------
+            # 2. Convert RepoPilot tool schemas -> Google Tool
+            # ---------------------------------------------------------
+            google_tools = None
+
+            if tools:
+                declarations = []
+
+                for tool in tools:
+                    declarations.append(
+                        types.FunctionDeclaration(
+                            name=tool["name"],
+                            description=tool.get("description", ""),
+                            parameters_json_schema=tool.get(
+                                "parameters",
+                                {
+                                    "type": "object",
+                                    "properties": {},
+                                },
+                            ),
+                        )
+                    )
+
+                google_tools = [
+                    types.Tool(
+                        function_declarations=declarations
+                    )
+                ]
+
+            # ---------------------------------------------------------
+            # 3. Build native Google configuration
+            # ---------------------------------------------------------
+            config_kwargs = {}
+
+            if system_instruction:
+                config_kwargs["system_instruction"] = system_instruction
+
+            if google_tools:
+                config_kwargs["tools"] = google_tools
+
+            config = (
+                types.GenerateContentConfig(**config_kwargs)
+                if config_kwargs
+                else None
+            )
+
+            # ---------------------------------------------------------
+            # 4. Call Gemma
+            # ---------------------------------------------------------
+            response = self._client.models.generate_content(
+                model=self._model,
+                contents=google_contents,
+                config=config,
+            )
+
+            # ---------------------------------------------------------
+            # 5. Extract model response
+            # ---------------------------------------------------------
+            text_content = response.text or ""
             calls = []
 
-            if hasattr(response, "function_calls") and response.function_calls:
+            if response.function_calls:
                 for call in response.function_calls:
-                    calls.append({
-                        "name": getattr(call, "name", ""),
-                        "args": dict(getattr(call, "args", {})),
-                    })
+                    calls.append(
+                        {
+                            "name": call.name,
+                            "args": dict(call.args or {}),
+                        }
+                    )
 
             return {
                 "text": text_content,
                 "function_calls": calls,
             }
+
         except Exception as e:
             err_msg = str(e)
-            if self._api_key and self._api_key in err_msg:
-                err_msg = err_msg.replace(self._api_key, "[REDACTED]")
-            raise GemmaAPIError(f"Gemma API request failed: {err_msg}") from None
 
+            if self._api_key and self._api_key in err_msg:
+                err_msg = err_msg.replace(
+                    self._api_key,
+                    "[REDACTED]",
+                )
+
+            raise GemmaAPIError(
+                f"Gemma API request failed: {err_msg}"
+            ) from None
 
 def generate_response(prompt: str) -> str:
     """Generate a response using the configured Gemma 4 model.
