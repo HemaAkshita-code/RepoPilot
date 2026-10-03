@@ -6,82 +6,88 @@ RepoPilot is designed to assist developers in navigating, exploring, and analyzi
 
 ---
 
-## Current Stage
+### Current Stage
 
-**Stage 4 — Repository Indexing, Vector Retrieval & RAG Agent Integration**
+**Stage 5 — Reusable Agent Skills & Investigation Workflows**
 
-Stage 4 upgrades RepoPilot with semantic retrieval capabilities:
-- **Repository Indexing & Chunking (Person 2):** `RepositoryIndexer`, deterministic line-bounded chunking (`chunk_file`), metadata tracking (`path:start_line-end_line`), and safe file filtering.
-- **Embeddings & Vector Store (Person 2):** `MockEmbeddingProvider` (deterministic offline feature hashing), `GoogleGenAIEmbeddingProvider`, and `InMemoryVectorStore` (cosine similarity search).
-- **Retrieval & RAG Context (Person 1):** `RepositoryRetriever`, `search_repository` model-facing tool, `InvestigationContext`, and evidence classification (distinguishing `retrieved_chunk` from `inspected_file`).
-- **Test Coverage:** Complete offline test suite (76 tests across `tests/test_indexing.py`, `tests/test_retrieval.py`, `tests/test_agent.py`, `tests/test_registry.py`, `tests/test_repository.py`, `tests/test_tools.py`, `tests/test_gemma.py`).
+Stage 5 equips RepoPilot with a reusable Agent Skill abstraction layer:
+- **Skill Engine & Lifecycle (Person 1):** `BaseSkill`, `SkillResult`, `Finding`, `SkillMetadata`, `SkillManager`, input validation, bounded execution, security enforcement, and `ToolRegistry` binding.
+- **Built-in Investigation Skills (Person 2):**
+  1. `ArchitectureSkill` (`understand_architecture`): Investigates high-level layout, entry points, configuration, and major subsystems.
+  2. `FeatureTraceSkill` (`trace_feature`): Traces a feature, concept, or data model across repository components using semantic RAG + code search + file inspection.
+  3. `APIFlowSkill` (`investigate_api_flow`): Maps API request progression across routes, controllers, services, and data access layers.
+  4. `AuthSkill` (`investigate_auth`): Analyzes authentication endpoints, security middleware, token handling, and authorization boundaries.
+- **Evidence Provenance & Context Integration:** All skills preserve evidence provenance within `InvestigationContext`, distinguishing observed facts from inferences.
+- **Test Coverage:** Complete offline test suite (87 tests across `tests/test_skills.py`, `tests/test_indexing.py`, `tests/test_retrieval.py`, `tests/test_agent.py`, `tests/test_registry.py`, `tests/test_repository.py`, `tests/test_tools.py`, `tests/test_gemma.py`).
 
 ### ⚠️ Scope & Unimplemented Features
-The following features are **NOT** implemented in Stage 4 and represent future roadmap milestones:
-- LangGraph framework integration
-- Agent Skills
-- User interface / frontend
-- Multimodal repository investigation
+The following features are **NOT** implemented in Stage 5 and represent future roadmap milestones:
+- LangGraph / external agent framework integration (built natively)
+- Frontend UI / web interface
+- Autonomous repository code modification (RepoPilot is read-only)
+- Pull-request analysis / issue tracker integration
 
 ---
 
-## Stage 4 Architecture & Capabilities
+## Stage 5 Architecture & Capabilities
 
 ```text
                          RepoPilot
                             │
-              ┌─────────────┴─────────────┐
-              │                           │
-        Repository Layer             Agent Core
-             Stage 2                  Stage 3/4
-              │                           │
-              │                           ▼
-              │                        Gemma 4
-              │                           │
-              │                  ┌────────┴────────┐
-              │                  │                 │
-              │             Tool calls       Retrieval
-              │                  │                 │
-              │                  ▼                 ▼
-              │           Tool Registry       Retriever
-              │                  │                 │
-              │                  ▼                 ▼
-              │          Existing Tools       Vector Store
-              │                                    ▲
-              │                                    │
-              └──────────────► Indexer ─────► Embeddings
-                                   │
-                                   ▼
-                                Chunks
-                                   │
-                                   ▼
-                             Repository Files
+                            ▼
+                         Gemma 4
+                            │
+                  ┌─────────┴─────────┐
+                  │                   │
+             Atomic Tools        Agent Skills
+                  │                   │
+                  │            ┌──────┴──────┐
+                  │            │             │
+                  │       Architecture   Feature Trace
+                  │            Skill          Skill
+                  │            │             │
+                  │            └──────┬──────┘
+                  │                   │
+                  └──────────┬────────┘
+                             ▼
+                       Tool Registry
+                             │
+              ┌──────────────┼──────────────┐
+              ▼              ▼              ▼
+         list_files      read_file      search_code
+                                            │
+                                            │
+                                   search_repository
+                                            │
+                                            ▼
+                                   Stage 4 Retrieval
+                                            │
+                                  ┌─────────┴─────────┐
+                                  ▼                   ▼
+                              Vector Store       Investigation
+                                                     Context
+                                                        │
+                                                        ▼
+                                                     Evidence
+                                                        │
+                                                        ▼
+                                                  Final Answer
 ```
 
-### Key Components
+### Key Differences: Tools vs. Skills
 
-1. **Repository Indexer (`RepositoryIndexer`)**:
-   - Safely walks repository text files using Stage 2 security & ignore rules.
-   - Splits text into line-bounded `CodeChunk` objects (e.g. `src/auth.py:1-40`).
-   - Ignores binary files, `.git`, `node_modules`, `__pycache__`, `.venv`, and oversized files.
-
-2. **Vector Store (`InMemoryVectorStore`)**:
-   - In-memory vector store performing top-$k$ cosine similarity search over chunk embeddings.
-   - Preserves source path, line ranges, content, and similarity scores.
-
-3. **Retriever & Search Tool (`search_repository`)**:
-   - Exposes `search_repository(query, top_k)` as an explicit tool in `ToolRegistry`.
-   - Injects repository context internally without allowing the model to specify `repo_root`.
-
-4. **Evidence Classification (`InvestigationContext`)**:
-   - Distinguishes between **Retrieved Chunks** (RAG vector search) and **Directly Inspected Files** (`read_file` tool call).
-   - Generates grounded source location citations (e.g. `src/auth.py:1-40`).
+| Dimension | Atomic Tool | Agent Skill |
+| --- | --- | --- |
+| **Abstraction Level** | Low-level repository operation (`read_file`, `search_code`). | High-level investigation workflow (`understand_architecture`, `trace_feature`). |
+| **Execution** | Atomic, single step. | Bounded sequence combining multiple tools & retrieval calls. |
+| **Output** | Raw text / match arrays. | Structured `SkillResult` with `findings` (facts vs inferences) and cited `evidence`. |
+| **Evidence** | Directly populates `InvestigationContext`. | Propagates line citations into `InvestigationContext` and `AgentState`. |
 
 ---
 
 ## Project Architecture
 
-Below is the project layout for **Stage 4**:
+Below is the project layout for **Stage 5**:
 
 ```text
 RepoPilot/
@@ -107,6 +113,15 @@ RepoPilot/
 │   │   ├── local.py
 │   │   ├── models.py
 │   │   └── workspace.py
+│   ├── skills/
+│   │   ├── __init__.py
+│   │   ├── api_flow.py
+│   │   ├── architecture.py
+│   │   ├── auth.py
+│   │   ├── base.py
+│   │   ├── feature_trace.py
+│   │   ├── manager.py
+│   │   └── models.py
 │   ├── tools/
 │   │   ├── __init__.py
 │   │   ├── exceptions.py
@@ -125,6 +140,7 @@ RepoPilot/
 │   ├── test_registry.py
 │   ├── test_repository.py
 │   ├── test_retrieval.py
+│   ├── test_skills.py
 │   └── test_tools.py
 │
 ├── .env.example
@@ -183,7 +199,7 @@ RepoPilot uses environment variables for configuration:
 
 ## Running the Application
 
-To run the Stage 4 RAG agent investigation demo:
+To run the Stage 5 agent investigation demo:
 
 ```powershell
 python backend/main.py
@@ -193,7 +209,7 @@ python backend/main.py
 
 ## Running Tests
 
-To run the complete Stage 4 test suite (100% offline):
+To run the complete Stage 5 test suite (100% offline):
 
 ```powershell
 python -m unittest discover -s tests -p "test_*.py"
@@ -201,6 +217,7 @@ python -m unittest discover -s tests -p "test_*.py"
 
 To run individual test modules:
 ```powershell
+python -m unittest tests/test_skills.py
 python -m unittest tests/test_indexing.py
 python -m unittest tests/test_retrieval.py
 python -m unittest tests/test_agent.py
@@ -214,6 +231,21 @@ python -m unittest tests/test_tools.py
 ## Security Guidelines
 
 - **Never commit `.env`** to version control.
+- **Never expose `GEMMA_API_KEY`** in documentation, commits, or client-side code.
+- **Never hardcode API keys** directly into Python files.
+- Models cannot control `repo_root` or bypass Stage 2 filesystem security boundaries.
+- Skills cannot execute arbitrary code (`eval`, `exec`, `subprocess`) or modify repository files.
+
+---
+
+## Roadmap
+
+- **Stage 1:** Foundation + Gemma 4 Connectivity
+- **Stage 2:** GitHub repository ingestion + repository exploration tools
+- **Stage 3:** Agent tool calling + autonomous investigation loop
+- **Stage 4:** Repository indexing + retrieval/RAG
+- **Stage 5 (Current):** Reusable Agent Skills & investigation workflows
+- **Stage 6:** Frontend + multimodal capabilities + final integrationon control.
 - **Never expose `GEMMA_API_KEY`** in documentation, commits, or client-side code.
 - **Never hardcode API keys** directly into Python files.
 - Models cannot control `repo_root` or bypass Stage 2 filesystem security boundaries.

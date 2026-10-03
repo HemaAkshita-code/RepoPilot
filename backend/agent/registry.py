@@ -152,6 +152,32 @@ class ToolRegistry:
             "error": None,
         }
 
+    def register_skill(self, skill: Any) -> None:
+        """
+        Registers an Agent Skill as a model-facing capability.
+        Adapts the skill's execute method to match tool execution expectations.
+        """
+        def _skill_adapter(**kwargs):
+            # Strip injected repo_root if present before passing kwargs to skill
+            clean_kwargs = {k: v for k, v in kwargs.items() if k != "repo_root"}
+            ctx = getattr(self, "_active_context", None)
+            res = skill.execute(registry=self, context=ctx, **clean_kwargs)
+            return res.to_dict()
+
+        self.register(
+            name=skill.name,
+            func=_skill_adapter,
+            description=skill.description,
+            parameters=skill.parameters,
+            param_validators=getattr(skill, "param_validators", {}),
+        )
+
+    def register_built_in_skills(self) -> None:
+        """Registers all built-in Stage 5 Agent Skills into the registry."""
+        from backend.skills import get_default_skill_manager
+        manager = get_default_skill_manager()
+        manager.register_skills_to_tool_registry(self)
+
     def register(
         self,
         name: str,
@@ -232,16 +258,22 @@ class ToolRegistry:
 
         return None
 
-    def execute(self, tool_name: str, args: Dict[str, Any]) -> ToolResult:
+    def execute(
+        self,
+        tool_name: str,
+        args: Dict[str, Any],
+        context: Optional[Any] = None,
+    ) -> ToolResult:
         """
-        Safely executes a registered tool, injecting the repository context.
+        Safely executes a registered tool or skill, injecting repository context.
 
         Args:
-            tool_name: The name of the tool.
+            tool_name: The name of the tool or skill.
             args: Model-provided keyword arguments (without repo_root).
+            context: Optional InvestigationContext for evidence tracking.
 
         Returns:
-            ToolResult: Structured outcome of the tool execution.
+            ToolResult: Structured outcome of the tool or skill execution.
         """
         validation_error = self.validate_args(tool_name, args)
         if validation_error:
@@ -258,8 +290,17 @@ class ToolRegistry:
         call_kwargs = dict(args)
         call_kwargs["repo_root"] = self._repo_root
 
+        # Temporarily store active context for skill adapter access
+        old_context = getattr(self, "_active_context", None)
+        if context is not None:
+            self._active_context = context
+
         try:
             raw_result = func(**call_kwargs)
+
+            # Record atomic evidence into context if context was provided
+            if context is not None and isinstance(raw_result, dict):
+                self._record_tool_evidence(tool_name, raw_result, context)
 
             if isinstance(raw_result, dict) and raw_result.get("error"):
                 return ToolResult(
@@ -282,3 +323,37 @@ class ToolRegistry:
                 result={},
                 error=f"Unexpected error executing '{tool_name}': {e}",
             )
+        finally:
+            self._active_context = old_context
+
+    def _record_tool_evidence(
+        self,
+        tool_name: str,
+        res: Dict[str, Any],
+        context: Any,
+    ) -> None:
+        """Helper method to populate InvestigationContext from atomic tool results."""
+        if tool_name == "search_repository":
+            chunks = res.get("chunks", [])
+            for c in chunks:
+                context.add_retrieved_chunk(
+                    path=c.get("path", ""),
+                    start_line=c.get("start_line", 1),
+                    end_line=c.get("end_line", 1),
+                    snippet=c.get("content", ""),
+                    score=c.get("score", 0.0),
+                )
+        elif tool_name == "read_file":
+            path = res.get("path")
+            content = res.get("content", "")
+            if path:
+                context.add_inspected_file(path, content[:200])
+        elif tool_name == "search_code":
+            matches = res.get("matches", [])
+            for m in matches:
+                p = m.get("path")
+                line = m.get("line", 1)
+                snippet = m.get("snippet", "")
+                if p:
+                    context.add_search_match(p, line, snippet)
+

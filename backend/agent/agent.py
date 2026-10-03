@@ -26,11 +26,15 @@ class RepoPilotAgent:
         gemma_client: Optional[GemmaClient] = None,
         max_iterations: int = 8,
         verbose: bool = False,
+        enable_skills: bool = False,
     ):
         self._registry = registry
         self._gemma_client = gemma_client
         self._max_iterations = max_iterations
         self._verbose = verbose
+
+        if enable_skills:
+            self._registry.register_built_in_skills()
 
     @property
     def registry(self) -> ToolRegistry:
@@ -149,8 +153,8 @@ class RepoPilotAgent:
                 if self._verbose:
                     print(f"[Step {step_num}] Executing tool '{tool_name}' with args {tool_args}")
 
-                # Execute via ToolRegistry (handles validation, security, and repo_root injection)
-                tool_result = self._registry.execute(tool_name, tool_args)
+                # Execute via ToolRegistry (handles validation, security, context injection, and skills)
+                tool_result = self._registry.execute(tool_name, tool_args, context=context)
                 step_tool_results.append(tool_result)
 
                 # Record evidence into state and context
@@ -208,6 +212,12 @@ class RepoPilotAgent:
         res = tool_result.result
         if not isinstance(res, dict):
             return
+
+        # Handle skill result evidence payload
+        if "skill_name" in res and "evidence" in res:
+            for loc in res.get("evidence", []):
+                if loc and loc not in state.evidence:
+                    state.evidence.append(loc)
 
         if tool_name == "search_repository":
             chunks = res.get("chunks", [])
